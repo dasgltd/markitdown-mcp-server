@@ -1,0 +1,48 @@
+# Front do container: escuta :3000, protege as rotas MCP com X-MCP-Key e
+# encaminha para o markitdown-mcp interno (127.0.0.1:3001).
+#
+# O markitdown-mcp monta o app em /mcp/ (COM trailing slash) e responde 307 a
+# /mcp — por isso normalizamos qualquer rota MCP para /mcp/ no backend, deixando
+# a URL pública limpa (sem trailing): server.dasg.ltd/markitdown/mcp
+#
+# Rotas:
+#   /health           -> 200 "ok"        (sem auth; usada pelo HEALTHCHECK)
+#   /markitdown/mcp   -> /mcp/  backend   (URL pública do hub; exige key)
+#   /mcp              -> /mcp/  backend   (uso interno n8n; exige key)
+{
+	admin off
+	auto_https off
+}
+
+:3000 {
+	route {
+		# Healthcheck aberto.
+		handle /health {
+			respond "ok" 200
+		}
+
+		# Sem a key correta, nega tudo daqui para baixo.
+		@unauth not header X-MCP-Key {env.MARKITDOWN_KEY}
+		respond @unauth "unauthorized" 401
+
+		# URL pública do hub -> backend /mcp/
+		handle /markitdown/mcp* {
+			rewrite * /mcp/
+			reverse_proxy 127.0.0.1:3001
+		}
+		handle /markitdown/sse* {
+			rewrite * /sse
+			reverse_proxy 127.0.0.1:3001
+		}
+
+		# Uso interno (n8n na rede docker): http://markitdown:3000/mcp
+		handle /mcp* {
+			rewrite * /mcp/
+			reverse_proxy 127.0.0.1:3001
+		}
+		handle /sse* {
+			rewrite * /sse
+			reverse_proxy 127.0.0.1:3001
+		}
+	}
+}
